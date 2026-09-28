@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { soundFx } from '../utils/sound';
+import { API_BASE_URL, apiFetch } from '../config/api';
 import { 
   Lock, 
   Mail, 
@@ -63,7 +64,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, initia
     soundFx.playBlip(1000);
 
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await apiFetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -100,7 +101,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, initia
     soundFx.playBlip(1100);
 
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await apiFetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -139,7 +140,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, initia
     soundFx.playBlip(1100);
 
     try {
-      const res = await fetch('/api/auth/register', {
+      const res = await apiFetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, username }),
@@ -172,7 +173,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, initia
     soundFx.playBlip(1200);
 
     try {
-      const res = await fetch('/api/auth/verify-otp', {
+      const res = await apiFetch('/api/auth/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, otpCode }),
@@ -201,7 +202,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, initia
     soundFx.playBlip(900);
 
     try {
-      const res = await fetch('/api/auth/resend-otp', {
+      const res = await apiFetch('/api/auth/resend-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),

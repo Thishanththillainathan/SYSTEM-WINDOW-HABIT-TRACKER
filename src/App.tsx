@@ -71,6 +71,7 @@ import {
 } from './components/LegalPages';
 import { Menu, X, Eye } from 'lucide-react';
 import { soundFx } from './utils/sound';
+import { API_BASE_URL, apiFetch } from './config/api';
 
 export function App() {
   // State Initialization from LocalStorage / Backend
@@ -160,7 +161,7 @@ export function App() {
 
   // Check auth session on startup & load user data
   useEffect(() => {
-    fetch('/api/auth/me')
+    apiFetch('/api/auth/me')
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data?.user) {
@@ -187,7 +188,7 @@ export function App() {
   // Fetch Dashboard Data from Server when Authenticated
   useEffect(() => {
     if (isAuthenticated) {
-      fetch('/api/user/dashboard-data')
+      apiFetch('/api/user/dashboard-data')
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
           if (data) {
@@ -210,7 +211,7 @@ export function App() {
         .catch(() => {});
 
       if (user.role === 'ADMIN') {
-        fetch('/api/admin/users')
+        apiFetch('/api/admin/users')
           .then((res) => (res.ok ? res.json() : null))
           .then((data) => {
             if (data?.users) {
@@ -245,7 +246,7 @@ export function App() {
   // Sync Profile updates to Server
   useEffect(() => {
     if (isAuthenticated) {
-      fetch('/api/user/profile', {
+      apiFetch('/api/user/profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(user),
@@ -256,7 +257,7 @@ export function App() {
   // Sync User Data to Server (Daily Quests, Quests, Skills, Schedule, Schedule Tasks, Habits, etc.)
   useEffect(() => {
     if (isAuthenticated) {
-      fetch('/api/user/sync', {
+      apiFetch('/api/user/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -296,7 +297,10 @@ export function App() {
     setIsAuthOpen(true);
   };
 
-  const handleAuthSuccess = (authUser: UserProfile) => {
+  const handleAuthSuccess = (authUser: UserProfile, token?: string) => {
+    if (token) {
+      localStorage.setItem('auth_token', token);
+    }
     setUser(authUser);
     setIsAuthenticated(true);
     setIsAuthOpen(false);
@@ -311,8 +315,9 @@ export function App() {
   const handleLogout = async () => {
     soundFx.playBlip(700);
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      await apiFetch('/api/auth/logout', { method: 'POST' });
     } catch {}
+    localStorage.removeItem('auth_token');
     setIsAuthenticated(false);
     setIsLandingOpen(true);
     setUser(defaultUserProfile);

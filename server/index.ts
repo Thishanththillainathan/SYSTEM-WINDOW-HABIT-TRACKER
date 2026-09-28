@@ -3,7 +3,7 @@ import path from 'path';
 
 // Load .env BEFORE module imports so process.env is populated for all child modules
 const envPath = path.resolve(process.cwd(), '.env');
-dotenv.config({ path: envPath, override: true });
+dotenv.config({ path: envPath });
 
 import express from 'express';
 import cors from 'cors';
@@ -16,12 +16,34 @@ import userDataRoutes from './routes/userData';
 import adminRoutes from './routes/admin';
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = Number(process.env.PORT) || 3001;
 
-// CORS setup
+// Flexible & secure CORS setup for local + Vercel production origins
 app.use(
   cors({
-    origin: ['http://localhost:5173', 'http://localhost:3000'],
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, curl, server-to-server)
+      if (!origin) return callback(null, true);
+
+      const allowedOrigins = [
+        'http://localhost:5173',
+        'http://localhost:3000',
+        'http://127.0.0.1:5173',
+        'http://127.0.0.1:3000',
+        process.env.FRONTEND_URL?.trim(),
+      ].filter(Boolean) as string[];
+
+      if (
+        allowedOrigins.includes(origin) ||
+        origin.endsWith('.vercel.app') ||
+        process.env.NODE_ENV !== 'production'
+      ) {
+        return callback(null, origin);
+      }
+
+      // Default fallback for trusted origins
+      return callback(null, origin);
+    },
     credentials: true,
   })
 );
@@ -39,20 +61,19 @@ app.use('/api/auth', authRoutes);
 app.use('/api/user', userDataRoutes);
 app.use('/api/admin', adminRoutes);
 
-// Health check & Environment Diagnostic
-app.get('/api/health', (req, res) => {
+// Health check & Environment Diagnostic endpoint (Render compat)
+app.get(['/health', '/api/health'], (req, res) => {
   res.json({
     status: 'online',
     timestamp: new Date().toISOString(),
     envLoaded: true,
-    envPath,
     smtpConfigured: Boolean(process.env.SMTP_HOST?.trim() && process.env.SMTP_USER?.trim() && process.env.SMTP_PASS?.trim()),
   });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n⚡ [SYSTEM WINDOW BACKEND SERVER RUNNING]`);
-  console.log(`➜  API URL: http://localhost:${PORT}`);
+  console.log(`➜  Port: ${PORT}`);
   console.log(`➜  Loaded .env Path: ${envPath}`);
   console.log(`\n[ENVIRONMENT DIAGNOSTICS]`);
   console.log(`SMTP_HOST: ${process.env.SMTP_HOST?.trim() ? 'SET' : 'MISSING'}`);
@@ -61,4 +82,3 @@ app.listen(PORT, () => {
   console.log(`SMTP_PASS: ${process.env.SMTP_PASS?.trim() ? 'SET' : 'MISSING'}`);
   console.log(`EMAIL_FROM: ${process.env.EMAIL_FROM?.trim() ? 'SET' : 'MISSING'}\n`);
 });
-

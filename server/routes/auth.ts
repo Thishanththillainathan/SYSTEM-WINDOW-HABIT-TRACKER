@@ -239,7 +239,7 @@ router.post('/verify-otp', async (req: AuthRequest, res: Response): Promise<void
     res.cookie('token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
@@ -400,7 +400,7 @@ router.post('/login', async (req: AuthRequest, res: Response): Promise<void> => 
     res.cookie('token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
@@ -436,7 +436,11 @@ router.post('/login', async (req: AuthRequest, res: Response): Promise<void> => 
 
 // 5. Logout
 router.post('/logout', (req: AuthRequest, res: Response): void => {
-  res.clearCookie('token');
+  res.clearCookie('token', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+  });
   res.json({ success: true, message: 'Logged out successfully.' });
 });
 

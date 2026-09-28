@@ -1,3 +1,5 @@
+import { API_BASE_URL, apiFetch } from '../config/api';
+
 export interface RankChallengeData {
   id: string;
   userId: string;
@@ -27,7 +29,7 @@ export interface RankChallengeData {
 
 export async function fetchRankChallenge(): Promise<RankChallengeData | null> {
   try {
-    const res = await fetch('/api/user/rank-challenge');
+    const res = await apiFetch('/api/user/rank-challenge');
     if (!res.ok) return null;
     const data = await res.json();
     return data.challenge || null;
@@ -39,7 +41,7 @@ export async function fetchRankChallenge(): Promise<RankChallengeData | null> {
 
 export async function fetchRankChallengeHistory(): Promise<RankChallengeData[]> {
   try {
-    const res = await fetch('/api/user/rank-challenge/history');
+    const res = await apiFetch('/api/user/rank-challenge/history');
     if (!res.ok) return [];
     const data = await res.json();
     return data.history || [];

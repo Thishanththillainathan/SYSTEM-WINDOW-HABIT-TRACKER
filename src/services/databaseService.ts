@@ -1,4 +1,5 @@
 import { PersonalDatabaseData, ChangeHistoryRecord, ChangeHistoryMonthlyStats } from '../types';
+import { API_BASE_URL, apiFetch } from '../config/api';
 
 export interface ChangeHistoryResponse {
   logs: ChangeHistoryRecord[];
@@ -9,7 +10,7 @@ export interface ChangeHistoryResponse {
 
 export async function fetchPersonalDatabase(): Promise<PersonalDatabaseData | null> {
   try {
-    const res = await fetch('/api/user/personal-database');
+    const res = await apiFetch('/api/user/personal-database');
     if (!res.ok) return null;
     return await res.json();
   } catch (err) {
@@ -37,7 +38,7 @@ export async function fetchChangeHistory(params?: {
     if (params?.limit) queryParams.set('limit', String(params.limit));
     if (params?.offset) queryParams.set('offset', String(params.offset));
 
-    const res = await fetch(`/api/user/change-history?${queryParams.toString()}`);
+    const res = await apiFetch(`/api/user/change-history?${queryParams.toString()}`);
     if (!res.ok) return null;
     return await res.json();
   } catch (err) {
@@ -55,7 +56,7 @@ export async function recordUserChange(options: {
   newValue?: string;
 }): Promise<boolean> {
   try {
-    const res = await fetch('/api/user/record-change', {
+    const res = await apiFetch('/api/user/record-change', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(options),
@@ -76,7 +77,7 @@ export async function fetchUserActivityLogs(): Promise<Array<{
   createdAt: string;
 }> | null> {
   try {
-    const res = await fetch('/api/user/user-activity-logs');
+    const res = await apiFetch('/api/user/user-activity-logs');
     if (!res.ok) return null;
     const data = await res.json();
     return data.logs || [];

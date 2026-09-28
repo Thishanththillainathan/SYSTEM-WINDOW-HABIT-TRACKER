@@ -7,6 +7,7 @@ import {
   UserActivityLog
 } from '../types';
 import { soundFx } from '../utils/sound';
+import { API_BASE_URL, apiFetch } from '../config/api';
 import { 
   ShieldAlert, 
   Users, 
@@ -107,11 +108,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     if (user.role === 'ADMIN') {
       setLoadingData(true);
       Promise.all([
-        fetch('/api/admin/stats').then((res) => (res.ok ? res.json() : null)),
-        fetch('/api/admin/activities').then((res) => (res.ok ? res.json() : null)),
-        fetch('/api/admin/users').then((res) => (res.ok ? res.json() : null)),
-        fetch('/api/admin/habits').then((res) => (res.ok ? res.json() : null)),
-        fetch('/api/admin/tasks').then((res) => (res.ok ? res.json() : null)),
+        apiFetch('/api/admin/stats').then((res) => (res.ok ? res.json() : null)),
+        apiFetch('/api/admin/activities').then((res) => (res.ok ? res.json() : null)),
+        apiFetch('/api/admin/users').then((res) => (res.ok ? res.json() : null)),
+        apiFetch('/api/admin/habits').then((res) => (res.ok ? res.json() : null)),
+        apiFetch('/api/admin/tasks').then((res) => (res.ok ? res.json() : null)),
       ])
         .then(([statsData, actData, usersData, habitsData, tasksData]) => {
           if (statsData?.stats) setDbStats(statsData.stats);
@@ -146,7 +147,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const nextStatus = currentStatus === 'Active' ? 'Sealed' : 'Active';
 
     try {
-      await fetch(`/api/admin/users/${id}/access`, {
+      await apiFetch(`/api/admin/users/${id}/access`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ accountStatus: nextStatus === 'Active' ? 'ACTIVE' : 'SEALED' }),
@@ -165,7 +166,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const nextRole = currentRole === 'admin' ? 'customer' : 'admin';
 
     try {
-      await fetch(`/api/admin/users/${id}/role`, {
+      await apiFetch(`/api/admin/users/${id}/role`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: nextRole }),
@@ -184,7 +185,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     soundFx.playLevelUp();
 
     try {
-      await fetch('/api/admin/broadcast', {
+      await apiFetch('/api/admin/broadcast', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: newNoticeTitle, message: newNoticeMsg }),
