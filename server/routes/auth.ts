@@ -13,16 +13,34 @@ router.use(authRateLimiter);
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+function validateEmail(email: any): { valid: boolean; cleanEmail: string; error?: string } {
+  if (!email || typeof email !== 'string') {
+    return { valid: false, cleanEmail: '', error: 'Email address is required.' };
+  }
+  const cleanEmail = email.toLowerCase().trim();
+  if (cleanEmail.length > 254 || !EMAIL_REGEX.test(cleanEmail)) {
+    return { valid: false, cleanEmail: '', error: 'A valid email address is required.' };
+  }
+  const domain = cleanEmail.split('@')[1];
+  const invalidDomains = ['test.com', 'example.com', 'invalid.com', 'localhost', 'test', 'local'];
+  if (invalidDomains.includes(domain) || !domain.includes('.')) {
+    return { valid: false, cleanEmail: '', error: 'Please enter a valid, active email address.' };
+  }
+  return { valid: true, cleanEmail };
+}
+
 // 1. Customer Registration
 router.post('/register', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { email, password, username } = req.body;
 
     // Server-side Input Validation
-    if (!email || typeof email !== 'string' || !EMAIL_REGEX.test(email.trim())) {
-      res.status(400).json({ error: 'A valid email address is required.' });
+    const emailCheck = validateEmail(email);
+    if (!emailCheck.valid) {
+      res.status(400).json({ error: emailCheck.error });
       return;
     }
+    const cleanEmail = emailCheck.cleanEmail;
 
     if (!password || typeof password !== 'string' || password.length < 6) {
       res.status(400).json({ error: 'Password must be at least 6 characters long.' });
@@ -35,18 +53,23 @@ router.post('/register', async (req: AuthRequest, res: Response): Promise<void> 
       return;
     }
 
-    const cleanEmail = email.toLowerCase().trim();
+    console.log(`[REGISTER] Step 1: Input validation passed for ${cleanEmail}`);
+
+    // Check existing email conflict
     const existingRes = await query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [cleanEmail]);
     const existing = existingRes.rows[0];
 
     if (existing) {
       if (existing.status === 'verified') {
-        res.status(400).json({ error: 'An account with this email address already exists. Please log in.' });
+        console.log(`[REGISTER] Step 2: Email conflict detected for verified account ${cleanEmail}`);
+        res.status(409).json({ error: 'An account with this email address already exists. Please log in.' });
         return;
       }
-      // If user exists but pending_verification, delete old unverified user record to re-register
+      // Delete previous unverified record so user can re-register freshly
       await query("DELETE FROM users WHERE LOWER(email) = LOWER($1) AND status = 'pending_verification'", [cleanEmail]);
     }
+
+    console.log(`[REGISTER] Step 2: Conflict check completed for ${cleanEmail}`);
 
     // Hash password with bcrypt
     const salt = await bcrypt.genSalt(10);
@@ -90,13 +113,13 @@ router.post('/register', async (req: AuthRequest, res: Response): Promise<void> 
       false
     ]);
 
+    console.log(`[REGISTER] Step 3: Pending user profile created (ID: ${userId})`);
+
     // Generate secure 6-digit OTP
     const otpCode = crypto.randomInt(100000, 1000000).toString();
     const otpHash = await bcrypt.hash(otpCode, 10);
     const nowMs = Date.now();
     const expiresAtMs = nowMs + 10 * 60 * 1000; // 10 minutes expiry rule
-
-    console.log(`OTP generated for ${cleanEmail}`);
 
     // Clear all previous OTPs for this email
     await query('DELETE FROM otps WHERE LOWER(email) = LOWER($1)', [cleanEmail]);
@@ -108,19 +131,24 @@ router.post('/register', async (req: AuthRequest, res: Response): Promise<void> 
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
     `, [otpId, cleanEmail, 'HASHED', otpHash, expiresAtMs, 0, 0, nowMs, nowMs]);
 
-    // Transmit OTP code via email service (never log in terminal)
+    console.log(`[REGISTER] Step 4: OTP record generated (ID: ${otpId})`);
+
+    // Transmit OTP code via email service
     const sendResult = await sendOtpEmail(cleanEmail, otpCode);
 
     if (!sendResult.success) {
-      // Allow immediate resend without 60s cooldown on failure
-      await query('UPDATE otps SET created_at = 0 WHERE id = $1', [otpId]);
-      res.status(500).json({
-        error: sendResult.error || 'Account created, but verification email could not be delivered. Please click Resend OTP to try again.',
-        needVerification: true,
-        email: cleanEmail,
+      console.error(`[REGISTER ERROR] Email delivery failed for ${cleanEmail}: ${sendResult.error}`);
+      // ROLLBACK: Delete inserted pending user and OTP record so no half-created user remains
+      await query('DELETE FROM otps WHERE id = $1', [otpId]).catch(() => {});
+      await query('DELETE FROM users WHERE id = $1', [userId]).catch(() => {});
+
+      res.status(502).json({
+        error: sendResult.error || 'Verification email could not be delivered. Please check your email address and try again.',
       });
       return;
     }
+
+    console.log(`[REGISTER] Step 5: OTP transmitted successfully to ${cleanEmail}`);
 
     res.json({
       success: true,
@@ -128,9 +156,9 @@ router.post('/register', async (req: AuthRequest, res: Response): Promise<void> 
       email: cleanEmail,
       message: 'Registration initiated. A 6-digit OTP code has been transmitted to your email.',
     });
-  } catch (err) {
-    console.error('Registration error:', err);
-    res.status(500).json({ error: 'Server error during registration.' });
+  } catch (err: any) {
+    console.error(`[REGISTER EXCEPTION] ${req.body?.email || 'Unknown'}:`, err?.stack || err?.message || err);
+    res.status(500).json({ error: 'Server error during registration. Please try again.' });
   }
 });
 
@@ -278,12 +306,12 @@ router.post('/resend-otp', async (req: AuthRequest, res: Response): Promise<void
   try {
     const { email } = req.body;
 
-    if (!email || typeof email !== 'string' || !EMAIL_REGEX.test(email.trim())) {
-      res.status(400).json({ error: 'A valid email address is required.' });
+    const emailCheck = validateEmail(email);
+    if (!emailCheck.valid) {
+      res.status(400).json({ error: emailCheck.error });
       return;
     }
-
-    const cleanEmail = email.toLowerCase().trim();
+    const cleanEmail = emailCheck.cleanEmail;
 
     // Ensure user exists and is pending verification
     const userRes = await query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [cleanEmail]);
