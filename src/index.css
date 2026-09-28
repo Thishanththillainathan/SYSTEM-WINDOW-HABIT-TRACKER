@@ -1,0 +1,186 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+    --font-display: 'Orbitron', Georgia, 'Times New Roman', serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+    --system-purple: #a855f7;
+    --system-purple-glow: rgba(168, 85, 247, 0.5);
+    --system-dark: #0a0314;
+    --system-panel: rgba(255, 255, 255, 0.12);
+    --system-panel-border: rgba(255, 255, 255, 0.25);
+    --system-text-glow: 0 0 12px rgba(168, 85, 247, 0.7);
+  }
+
+  html,
+  body,
+  #root {
+    width: 100%;
+    height: 100%;
+    min-height: 100dvh;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: var(--font-body);
+    background-color: #0c0418;
+    background-image: radial-gradient(circle at 50% 0%, #3e127a 0%, #1b0933 45%, #080210 100%);
+    background-attachment: fixed;
+    color: #ffffff;
+    overflow: hidden;
+  }
+
+  /* Headings: System RPG Style */
+  h1, h2, h3, h4, h5, h6, .font-orbitron {
+    font-family: var(--font-display);
+    color: #ffffff;
+  }
+
+  /* Code / Monospace */
+  code, pre, .font-mono, .font-tech {
+    font-family: var(--font-mono);
+  }
+
+  .font-rajdhani, .font-exo, .font-sans {
+    font-family: var(--font-body);
+  }
+}
+
+/* HIGH VISIBILITY TRANSLUCENT WHITE GLASS SYSTEM PANELS */
+
+/* Main Large Panels (Status Window, Hunter Attribute Matrix, Quests container, etc.) */
+.system-panel {
+  background: rgba(255, 255, 255, 0.12) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.25) !important;
+  box-shadow: 
+    0 8px 32px rgba(0, 0, 0, 0.25), 
+    0 0 30px rgba(168, 85, 247, 0.15), 
+    inset 0 1px 0 rgba(255, 255, 255, 0.20);
+  position: relative;
+}
+
+/* Important Active Panels */
+.system-panel-glow {
+  background: rgba(255, 255, 255, 0.13) !important;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.32) !important;
+  box-shadow: 
+    0 0 35px rgba(168, 85, 247, 0.30), 
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  position: relative;
+}
+
+/* Secondary Panels */
+.glass-panel-subtle {
+  background: rgba(255, 255, 255, 0.09) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.20) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+/* Small Cards & Stat Boxes (EXP Gauge, Current Streak, Daily Done, STR/INT/VIT/WIS/CHA, etc.) */
+.glass-stat-box, .stat-box {
+  background: rgba(255, 255, 255, 0.075) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10);
+}
+
+.system-panel-danger {
+  background: rgba(255, 255, 255, 0.09) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(244, 63, 94, 0.4) !important;
+  box-shadow: 0 0 20px rgba(244, 63, 94, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  position: relative;
+}
+
+/* Translucent White System Buttons */
+.hex-btn, .system-btn {
+  background: rgba(255, 255, 255, 0.10) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.25) !important;
+  color: #ffffff !important;
+  transition: all 0.2s ease-in-out;
+}
+
+.hex-btn:hover, .system-btn:hover {
+  background: rgba(255, 255, 255, 0.18) !important;
+  border-color: rgba(255, 255, 255, 0.40) !important;
+  box-shadow: 0 0 20px rgba(168, 85, 247, 0.45);
+  color: #ffffff !important;
+}
+
+.system-btn-primary {
+  background: rgba(255, 255, 255, 0.13) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.32) !important;
+  box-shadow: 0 0 25px rgba(168, 85, 247, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  color: #ffffff !important;
+  transition: all 0.2s ease-in-out;
+}
+
+.system-btn-primary:hover {
+  background: rgba(255, 255, 255, 0.22) !important;
+  border-color: rgba(255, 255, 255, 0.50) !important;
+  box-shadow: 0 0 35px rgba(168, 85, 247, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  color: #ffffff !important;
+}
+
+.hex-corner {
+  clip-path: polygon(
+    0 8px, 8px 0, 
+    calc(100% - 8px) 0, 100% 8px, 
+    100% calc(100% - 8px), calc(100% - 8px) 100%, 
+    8px 100%, 0 calc(100% - 8px)
+  );
+}
+
+.hex-btn {
+  clip-path: polygon(
+    0 6px, 6px 0, 
+    calc(100% - 6px) 0, 100% 6px, 
+    100% calc(100% - 6px), calc(100% - 6px) 100%, 
+    6px 100%, 0 calc(100% - 8px)
+  );
+}
+
+/* System Purple Text Glow & Lighting */
+.text-glow {
+  text-shadow: 0 0 10px rgba(168, 85, 247, 0.7), 0 0 25px rgba(168, 85, 247, 0.35);
+}
+
+.text-glow-red {
+  text-shadow: 0 0 10px rgba(244, 63, 94, 0.8), 0 0 20px rgba(244, 63, 94, 0.4);
+}
+
+.text-glow-gold {
+  text-shadow: 0 0 10px rgba(234, 179, 8, 0.8), 0 0 20px rgba(234, 179, 8, 0.4);
+}
+
+/* Custom System Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(5, 2, 10, 0.95);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(168, 85, 247, 0.7);
+  box-shadow: 0 0 10px #a855f7;
+}
