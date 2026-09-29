@@ -21,9 +21,9 @@ function getTransporter(): nodemailer.Transporter | null {
         user: smtpUser,
         pass: smtpPass,
       },
-      connectionTimeout: 10000, // 10 seconds TCP connection timeout
-      greetingTimeout: 10000,   // 10 seconds SMTP greeting timeout
-      socketTimeout: 15000,     // 15 seconds socket inactivity timeout
+      connectionTimeout: 8000, // 8 seconds TCP connection timeout
+      greetingTimeout: 8000,   // 8 seconds SMTP greeting timeout
+      socketTimeout: 10000,    // 10 seconds socket inactivity timeout
     });
   }
 
@@ -99,7 +99,7 @@ export async function sendOtpEmail(toEmail: string, otpCode: string): Promise<Se
     });
 
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('SMTP transmission timed out after 12 seconds.')), 12000)
+      setTimeout(() => reject(new Error('SMTP transmission timed out after 10 seconds.')), 10000)
     );
 
     const info = await Promise.race([sendMailPromise, timeoutPromise]);

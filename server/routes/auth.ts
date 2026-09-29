@@ -29,8 +29,9 @@ function validateEmail(email: any): { valid: boolean; cleanEmail: string; error?
   return { valid: true, cleanEmail };
 }
 
-// 1. Customer Registration (WITH STRICT PG TRANSACTION, STEP LOGGING & FINITE TIMEOUTS)
+// 1. Customer Registration (STRICT NON-BLOCKING DB TRANSACTION + SEPARATE SMTP TRANSMISSION)
 router.post('/register', async (req: AuthRequest, res: Response): Promise<void> => {
+  const startTime = Date.now();
   const { email, password, username } = req.body;
 
   // Server-side Input Validation
@@ -52,13 +53,14 @@ router.post('/register', async (req: AuthRequest, res: Response): Promise<void> 
     return;
   }
 
-  console.log(`[REGISTRATION STEP: INPUT_VALIDATION] Input validation passed for ${cleanEmail}`);
+  console.log(`⏱️ [TIMING 0ms] [INPUT_VALIDATION] Input validation passed for ${cleanEmail}`);
 
   let client;
+  const dbAcquireStart = Date.now();
   try {
     client = await pool.connect();
   } catch (connErr: any) {
-    console.error(`[REGISTRATION ERROR: DB_CONNECT] Failed to acquire DB connection:`, connErr?.message || connErr);
+    console.error(`❌ [TIMING +${Date.now() - dbAcquireStart}ms] [DB_POOL_ACQUIRE_FAILED] ${cleanEmail}:`, connErr?.message || connErr);
     res.status(503).json({
       error: 'DATABASE_UNAVAILABLE',
       message: 'Database connection failed. Please try again in a few moments.'
@@ -66,32 +68,41 @@ router.post('/register', async (req: AuthRequest, res: Response): Promise<void> 
     return;
   }
 
+  console.log(`⏱️ [TIMING +${Date.now() - dbAcquireStart}ms] [DB_POOL_ACQUIRE] Acquired DB client for ${cleanEmail}`);
+
+  const userId = `usr-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  const nowMs = Date.now();
+  const otpId = `otp-${nowMs}-${Math.floor(Math.random() * 1000)}`;
+  const otpCode = crypto.randomInt(100000, 1000000).toString();
+
   try {
+    const transactionStart = Date.now();
     await client.query('BEGIN');
 
     // Step 1: Check existing user conflict
-    console.log(`[REGISTRATION STEP: CHECK_CONFLICT] Checking user records for ${cleanEmail}`);
+    const checkStart = Date.now();
     const existingRes = await client.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [cleanEmail]);
     const existing = existingRes.rows[0];
+    console.log(`⏱️ [TIMING +${Date.now() - checkStart}ms] [CHECK_CONFLICT] Queried user existence for ${cleanEmail}`);
 
     if (existing) {
       if (existing.status === 'verified') {
-        console.log(`[REGISTRATION STEP: CONFLICT_VERIFIED] Email conflict detected for verified account ${cleanEmail}`);
+        console.log(`⚠️ [TIMING +${Date.now() - startTime}ms] [CONFLICT_VERIFIED] Email conflict detected for verified account ${cleanEmail}`);
         await client.query('ROLLBACK');
+        client.release();
         res.status(409).json({ error: 'An account with this email address already exists. Please log in.' });
         return;
       }
-      // Delete previous unverified record within transaction so user can re-register freshly
-      console.log(`[REGISTRATION STEP: CLEAN_PENDING] Removing stale unverified profile for ${cleanEmail}`);
+      // Clean previous unverified record so user can re-register cleanly
+      console.log(`⏱️ [TIMING +${Date.now() - startTime}ms] [CLEAN_PENDING] Removing stale unverified profile for ${cleanEmail}`);
       await client.query("DELETE FROM otps WHERE LOWER(email) = LOWER($1)", [cleanEmail]);
       await client.query("DELETE FROM users WHERE LOWER(email) = LOWER($1) AND status = 'pending_verification'", [cleanEmail]);
     }
 
     // Step 2: Hash password & insert pending user
-    console.log(`[REGISTRATION STEP: USER_INSERT] Creating pending user record for ${cleanEmail}`);
+    const insertUserStart = Date.now();
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
-    const userId = `usr-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
     const defaultStats = JSON.stringify({
       STR: 10,
@@ -127,51 +138,29 @@ router.post('/register', async (req: AuthRequest, res: Response): Promise<void> 
       'ACTIVE',
       false
     ]);
+    console.log(`⏱️ [TIMING +${Date.now() - insertUserStart}ms] [USER_INSERT] Created pending user record for ${cleanEmail}`);
 
     // Step 3: Generate & insert OTP
-    console.log(`[REGISTRATION STEP: OTP_INSERT] Creating OTP passcode record for ${cleanEmail}`);
-    const otpCode = crypto.randomInt(100000, 1000000).toString();
+    const insertOtpStart = Date.now();
     const otpHash = await bcrypt.hash(otpCode, 10);
-    const nowMs = Date.now();
     const expiresAtMs = nowMs + 10 * 60 * 1000; // 10 minutes expiry
-    const otpId = `otp-${nowMs}-${Math.floor(Math.random() * 1000)}`;
 
     await client.query('DELETE FROM otps WHERE LOWER(email) = LOWER($1)', [cleanEmail]);
     await client.query(`
       INSERT INTO otps (id, email, otp_code, otp_hash, expires_at, failed_attempts, resend_count, resend_window_start, created_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
     `, [otpId, cleanEmail, 'HASHED', otpHash, expiresAtMs, 0, 0, nowMs, nowMs]);
+    console.log(`⏱️ [TIMING +${Date.now() - insertOtpStart}ms] [OTP_INSERT] Created OTP record for ${cleanEmail}`);
 
-    // Step 4: Transmit OTP via Brevo SMTP
-    console.log(`[REGISTRATION STEP: SMTP_SEND] Transmitting verification email to ${cleanEmail}`);
-    const sendResult = await sendOtpEmail(cleanEmail, otpCode);
-
-    if (!sendResult.success) {
-      console.error(`[REGISTRATION ERROR: SMTP_FAILED] Email delivery failed for ${cleanEmail}: ${sendResult.error}`);
-      // ROLLBACK: Undo user and OTP creation in database completely
-      await client.query('ROLLBACK');
-      res.status(502).json({
-        error: 'EMAIL_DELIVERY_FAILED',
-        message: sendResult.error || 'We could not send the OTP email right now. Please try again.',
-      });
-      return;
-    }
-
-    // Step 5: COMMIT Transaction after successful email transmission
+    // Step 4: COMMIT Transaction immediately before launching SMTP network call
+    const commitStart = Date.now();
     await client.query('COMMIT');
-    console.log(`[REGISTRATION STEP: SUCCESS] Account registration initiated successfully for ${cleanEmail}`);
-
-    res.json({
-      success: true,
-      needVerification: true,
-      email: cleanEmail,
-      message: 'Registration initiated. A 6-digit OTP code has been transmitted to your email.',
-    });
+    console.log(`⏱️ [TIMING +${Date.now() - commitStart}ms] [COMMIT] DB Transaction COMMITTED in ${Date.now() - transactionStart}ms total for ${cleanEmail}`);
   } catch (err: any) {
     if (client) {
       await client.query('ROLLBACK').catch(() => {});
     }
-    console.error(`[REGISTRATION ERROR: EXCEPTION] ${cleanEmail}:`, err?.message || err);
+    console.error(`❌ [TIMING +${Date.now() - startTime}ms] [REGISTRATION_DB_ERROR] ${cleanEmail}:`, err?.message || err);
 
     if (err?.code === '57014' || err?.message?.includes('timeout')) {
       res.status(503).json({
@@ -183,13 +172,44 @@ router.post('/register', async (req: AuthRequest, res: Response): Promise<void> 
 
     res.status(500).json({
       error: 'INTERNAL_SERVER_ERROR',
-      message: 'Registration could not be completed. Please try again.',
+      message: 'Registration database step failed. Please try again.',
     });
+    return;
   } finally {
     if (client) {
       client.release();
     }
   }
+
+  // Step 5: Transmit OTP via Brevo SMTP (OUTSIDE DB TRANSACTION - DOES NOT HOLD PG CONNECTION OPEN)
+  const smtpStart = Date.now();
+  console.log(`⏱️ [TIMING +${smtpStart - startTime}ms] [SMTP_SEND_START] Initiating Brevo SMTP transmission for ${cleanEmail}`);
+
+  const sendResult = await sendOtpEmail(cleanEmail, otpCode);
+  console.log(`⏱️ [TIMING +${Date.now() - smtpStart}ms] [SMTP_SEND_END] Brevo SMTP response received for ${cleanEmail} (success: ${sendResult.success})`);
+
+  if (!sendResult.success) {
+    console.error(`❌ [TIMING +${Date.now() - startTime}ms] [SMTP_FAILED] Email delivery failed for ${cleanEmail}: ${sendResult.error}`);
+    
+    // Clean up created pending user and OTP records cleanly using fast query
+    await query('DELETE FROM otps WHERE id = $1', [otpId]).catch(() => {});
+    await query("DELETE FROM users WHERE id = $1 AND status = 'pending_verification'", [userId]).catch(() => {});
+
+    res.status(502).json({
+      error: 'EMAIL_DELIVERY_FAILED',
+      message: sendResult.error || 'We could not send the OTP email right now. Please try again.',
+    });
+    return;
+  }
+
+  console.log(`⏱️ [TIMING TOTAL: ${Date.now() - startTime}ms] [RESPONSE_SENT] Registration request completed successfully for ${cleanEmail}`);
+
+  res.json({
+    success: true,
+    needVerification: true,
+    email: cleanEmail,
+    message: 'Registration initiated. A 6-digit OTP code has been transmitted to your email.',
+  });
 });
 
 // 2. Verify OTP
