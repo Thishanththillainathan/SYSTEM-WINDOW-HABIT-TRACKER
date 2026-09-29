@@ -7,6 +7,7 @@ dotenv.config({ path: envPath });
 
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { initDb, pool } from './db';
 import { seedAdmin } from './seed';
@@ -29,6 +30,12 @@ if (missingEnvVars.length > 0) {
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
+
+// Enable security headers via helmet
+app.use(helmet({
+  contentSecurityPolicy: false, // Disable CSP header to prevent blocking Vercel API calls
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
 
 // Enable proxy trust for Render / Cloudflare load balancers
 app.set('trust proxy', 1);
@@ -106,11 +113,6 @@ verifySmtpConnection().catch((err) => {
   console.error('❌ [SMTP CHECK ERROR] Failed to verify SMTP connection:', err);
 });
 
-// API Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/user', userDataRoutes);
-app.use('/api/admin', adminRoutes);
-
 // Health check & Environment Diagnostic endpoint (Render compat)
 app.get(['/health', '/api/health'], (req: Request, res: Response) => {
   res.json({
@@ -145,9 +147,19 @@ app.get('/api/diagnostics/registration', async (req: Request, res: Response) => 
   });
 });
 
+// API Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/user', userDataRoutes);
+app.use('/api/admin', adminRoutes);
+
 // 404 JSON Handler
 app.use((req: Request, res: Response) => {
-  res.status(404).json({ error: `Route not found: ${req.method} ${req.originalUrl}` });
+  res.status(404).json({
+    success: false,
+    code: 'NOT_FOUND',
+    error: `Route not found: ${req.method} ${req.originalUrl}`,
+    message: `The requested endpoint ${req.originalUrl} does not exist on this server.`
+  });
 });
 
 // Global Express Error Handler (ALWAYS RETURNS JSON WITH CORS HEADERS)
@@ -167,7 +179,12 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
     : (err.message || 'Internal Server Error');
 
   if (!res.headersSent) {
-    res.status(statusCode).json({ error: errorMsg });
+    res.status(statusCode).json({
+      success: false,
+      code: err.code || 'INTERNAL_SERVER_ERROR',
+      error: errorMsg,
+      message: errorMsg
+    });
   }
 });
 
