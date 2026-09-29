@@ -21,6 +21,9 @@ function getTransporter(): nodemailer.Transporter | null {
         user: smtpUser,
         pass: smtpPass,
       },
+      connectionTimeout: 10000, // 10 seconds TCP connection timeout
+      greetingTimeout: 10000,   // 10 seconds SMTP greeting timeout
+      socketTimeout: 15000,     // 15 seconds socket inactivity timeout
     });
   }
 
@@ -34,7 +37,11 @@ export async function verifySmtpConnection(): Promise<boolean> {
     return false;
   }
   try {
-    await transporter.verify();
+    const verifyPromise = transporter.verify();
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('SMTP verification timed out after 5s')), 5000)
+    );
+    await Promise.race([verifyPromise, timeoutPromise]);
     console.log(`✅ [SMTP SERVICE] Connection & authentication verified successfully for ${process.env.SMTP_USER?.trim()}`);
     return true;
   } catch (err: any) {
@@ -58,7 +65,7 @@ export async function sendOtpEmail(toEmail: string, otpCode: string): Promise<Se
   const fromEmail = process.env.EMAIL_FROM?.trim() || process.env.SMTP_USER?.trim() || 'noreply@systemwindow.app';
   const transporter = getTransporter();
 
-  console.log(`Sending OTP email to ${cleanEmail}`);
+  console.log(`[SMTP_SEND] Transmitting OTP email to ${cleanEmail}`);
 
   if (!transporter) {
     const errorMsg = 'SMTP email provider is not configured. Please specify SMTP_HOST, SMTP_USER, and SMTP_PASS in server environment.';
@@ -84,20 +91,26 @@ export async function sendOtpEmail(toEmail: string, otpCode: string): Promise<Se
   `;
 
   try {
-    const info = await transporter.sendMail({
+    const sendMailPromise = transporter.sendMail({
       from: fromEmail.includes('<') ? fromEmail : `System Window <${fromEmail}>`,
       to: cleanEmail,
       subject: `[SYSTEM WINDOW] Your 6-Digit Verification Code`,
       html: htmlBody,
     });
 
-    console.log(`Email sent to ${cleanEmail} (Message ID: ${info.messageId})`);
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('SMTP transmission timed out after 12 seconds.')), 12000)
+    );
+
+    const info = await Promise.race([sendMailPromise, timeoutPromise]);
+
+    console.log(`[SMTP_SUCCESS] Email sent to ${cleanEmail} (Message ID: ${info.messageId})`);
     return {
       success: true,
       messageId: info.messageId,
     };
   } catch (err: any) {
-    console.error(`Failed to send email to ${cleanEmail}: Code: ${err.code || 'N/A'}, Response: ${err.response || 'N/A'}, Message: ${err.message || String(err)}`);
+    console.error(`[SMTP_ERROR] Failed to send email to ${cleanEmail}: Code: ${err.code || 'N/A'}, Message: ${err.message || String(err)}`);
     return {
       success: false,
       error: `Could not send verification email: ${err.message || 'SMTP transmission failure'}. Please try again.`,

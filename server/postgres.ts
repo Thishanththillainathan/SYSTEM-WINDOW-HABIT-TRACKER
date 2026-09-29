@@ -9,10 +9,18 @@ const { Pool } = pg;
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
+  connectionTimeoutMillis: 5000, // 5 second connection timeout
+  idleTimeoutMillis: 30000,       // 30 second idle timeout
+  max: 20,                         // Maximum 20 connections
 });
 
 export async function query(text: string, params?: any[]) {
-  return await pool.query(text, params);
+  const client = await pool.connect();
+  try {
+    return await client.query(text, params);
+  } finally {
+    client.release();
+  }
 }
 
 export async function initPostgresDb() {

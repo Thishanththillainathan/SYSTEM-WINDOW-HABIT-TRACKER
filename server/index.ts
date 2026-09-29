@@ -8,7 +8,7 @@ dotenv.config({ path: envPath });
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
-import { initDb } from './db';
+import { initDb, pool } from './db';
 import { seedAdmin } from './seed';
 import { verifySmtpConnection } from './email';
 import authRoutes from './routes/auth';
@@ -118,6 +118,30 @@ app.get(['/health', '/api/health'], (req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
     envLoaded: true,
     smtpConfigured: Boolean(process.env.SMTP_HOST?.trim() && process.env.SMTP_USER?.trim() && process.env.SMTP_PASS?.trim()),
+  });
+});
+
+// Safe registration diagnostics endpoint (NO SECRETS RETURNED)
+app.get('/api/diagnostics/registration', async (req: Request, res: Response) => {
+  let databaseStatus = 'configured';
+  try {
+    const client = await pool.connect();
+    await client.query('SELECT 1');
+    client.release();
+  } catch (err: any) {
+    databaseStatus = `error: ${err?.message || 'connection_failed'}`;
+  }
+
+  const smtpConfigured = Boolean(
+    process.env.SMTP_HOST?.trim() &&
+    process.env.SMTP_USER?.trim() &&
+    process.env.SMTP_PASS?.trim()
+  );
+
+  res.json({
+    database: databaseStatus,
+    smtp: smtpConfigured ? 'configured' : 'missing',
+    api: 'online',
   });
 });
 

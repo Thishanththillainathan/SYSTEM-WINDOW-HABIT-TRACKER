@@ -15,8 +15,9 @@ export async function apiFetch(endpoint: string, options: ApiFetchOptions = {}):
     headers.set('Authorization', `Bearer ${token}`);
   }
   
-  const timeoutMs = options.timeoutMs ?? 60000; // 60-second timeout for Render cold-starts
-  const maxRetries = options.retries ?? 1;
+  const timeoutMs = options.timeoutMs ?? 25000; // 25-second timeout for Render cold-starts & API calls
+  const isGetRequest = !options.method || options.method.toUpperCase() === 'GET';
+  const maxRetries = options.retries ?? (isGetRequest ? 1 : 0);
 
   let attempt = 0;
   let lastError: any = null;
@@ -39,12 +40,12 @@ export async function apiFetch(endpoint: string, options: ApiFetchOptions = {}):
       lastError = err;
       
       if (err.name === 'AbortError') {
-        throw new Error('Server response timed out (server is waking up). Please try again in a few seconds.');
+        throw new Error('Server response timed out. Please check your connection and try again.');
       }
       
       attempt++;
       if (attempt <= maxRetries) {
-        // Wait 1.5 seconds before retrying
+        // Wait 1.5 seconds before retrying GET requests
         await new Promise((resolve) => setTimeout(resolve, 1500));
       }
     }

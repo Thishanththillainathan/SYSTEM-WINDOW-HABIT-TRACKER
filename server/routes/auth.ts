@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
-import { query } from '../postgres';
+import { query, pool } from '../postgres';
 import { sendOtpEmail } from '../email';
 import { generateToken, verifyTokenMiddleware, AuthRequest, authRateLimiter } from '../middleware/auth';
 import { logChange } from '../changeLogger';
@@ -29,52 +29,68 @@ function validateEmail(email: any): { valid: boolean; cleanEmail: string; error?
   return { valid: true, cleanEmail };
 }
 
-// 1. Customer Registration
+// 1. Customer Registration (WITH STRICT PG TRANSACTION, STEP LOGGING & FINITE TIMEOUTS)
 router.post('/register', async (req: AuthRequest, res: Response): Promise<void> => {
+  const { email, password, username } = req.body;
+
+  // Server-side Input Validation
+  const emailCheck = validateEmail(email);
+  if (!emailCheck.valid) {
+    res.status(400).json({ error: emailCheck.error });
+    return;
+  }
+  const cleanEmail = emailCheck.cleanEmail;
+
+  if (!password || typeof password !== 'string' || password.length < 6) {
+    res.status(400).json({ error: 'Password must be at least 6 characters long.' });
+    return;
+  }
+
+  const hunterName = typeof username === 'string' ? username.trim() : '';
+  if (!hunterName) {
+    res.status(400).json({ error: 'Hunter name (username) is required.' });
+    return;
+  }
+
+  console.log(`[REGISTRATION STEP: INPUT_VALIDATION] Input validation passed for ${cleanEmail}`);
+
+  let client;
   try {
-    const { email, password, username } = req.body;
+    client = await pool.connect();
+  } catch (connErr: any) {
+    console.error(`[REGISTRATION ERROR: DB_CONNECT] Failed to acquire DB connection:`, connErr?.message || connErr);
+    res.status(503).json({
+      error: 'DATABASE_UNAVAILABLE',
+      message: 'Database connection failed. Please try again in a few moments.'
+    });
+    return;
+  }
 
-    // Server-side Input Validation
-    const emailCheck = validateEmail(email);
-    if (!emailCheck.valid) {
-      res.status(400).json({ error: emailCheck.error });
-      return;
-    }
-    const cleanEmail = emailCheck.cleanEmail;
+  try {
+    await client.query('BEGIN');
 
-    if (!password || typeof password !== 'string' || password.length < 6) {
-      res.status(400).json({ error: 'Password must be at least 6 characters long.' });
-      return;
-    }
-
-    const hunterName = typeof username === 'string' ? username.trim() : '';
-    if (!hunterName) {
-      res.status(400).json({ error: 'Hunter name (username) is required.' });
-      return;
-    }
-
-    console.log(`[REGISTER] Step 1: Input validation passed for ${cleanEmail}`);
-
-    // Check existing email conflict
-    const existingRes = await query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [cleanEmail]);
+    // Step 1: Check existing user conflict
+    console.log(`[REGISTRATION STEP: CHECK_CONFLICT] Checking user records for ${cleanEmail}`);
+    const existingRes = await client.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [cleanEmail]);
     const existing = existingRes.rows[0];
 
     if (existing) {
       if (existing.status === 'verified') {
-        console.log(`[REGISTER] Step 2: Email conflict detected for verified account ${cleanEmail}`);
+        console.log(`[REGISTRATION STEP: CONFLICT_VERIFIED] Email conflict detected for verified account ${cleanEmail}`);
+        await client.query('ROLLBACK');
         res.status(409).json({ error: 'An account with this email address already exists. Please log in.' });
         return;
       }
-      // Delete previous unverified record so user can re-register freshly
-      await query("DELETE FROM users WHERE LOWER(email) = LOWER($1) AND status = 'pending_verification'", [cleanEmail]);
+      // Delete previous unverified record within transaction so user can re-register freshly
+      console.log(`[REGISTRATION STEP: CLEAN_PENDING] Removing stale unverified profile for ${cleanEmail}`);
+      await client.query("DELETE FROM otps WHERE LOWER(email) = LOWER($1)", [cleanEmail]);
+      await client.query("DELETE FROM users WHERE LOWER(email) = LOWER($1) AND status = 'pending_verification'", [cleanEmail]);
     }
 
-    console.log(`[REGISTER] Step 2: Conflict check completed for ${cleanEmail}`);
-
-    // Hash password with bcrypt
+    // Step 2: Hash password & insert pending user
+    console.log(`[REGISTRATION STEP: USER_INSERT] Creating pending user record for ${cleanEmail}`);
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
-
     const userId = `usr-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
     const defaultStats = JSON.stringify({
@@ -85,8 +101,7 @@ router.post('/register', async (req: AuthRequest, res: Response): Promise<void> 
       CHA: 10,
     });
 
-    // Create user with status: pending_verification
-    await query(`
+    await client.query(`
       INSERT INTO users (
         id, email, password_hash, role, status, username, title, level, xp, xp_to_next_level, rank, streak, longest_streak, points, awakening_date, stats_json, account_status, has_completed_onboarding
       ) VALUES (
@@ -113,42 +128,38 @@ router.post('/register', async (req: AuthRequest, res: Response): Promise<void> 
       false
     ]);
 
-    console.log(`[REGISTER] Step 3: Pending user profile created (ID: ${userId})`);
-
-    // Generate secure 6-digit OTP
+    // Step 3: Generate & insert OTP
+    console.log(`[REGISTRATION STEP: OTP_INSERT] Creating OTP passcode record for ${cleanEmail}`);
     const otpCode = crypto.randomInt(100000, 1000000).toString();
     const otpHash = await bcrypt.hash(otpCode, 10);
     const nowMs = Date.now();
-    const expiresAtMs = nowMs + 10 * 60 * 1000; // 10 minutes expiry rule
-
-    // Clear all previous OTPs for this email
-    await query('DELETE FROM otps WHERE LOWER(email) = LOWER($1)', [cleanEmail]);
-    
-    // Insert new OTP record with hash and resend metrics
+    const expiresAtMs = nowMs + 10 * 60 * 1000; // 10 minutes expiry
     const otpId = `otp-${nowMs}-${Math.floor(Math.random() * 1000)}`;
-    await query(`
+
+    await client.query('DELETE FROM otps WHERE LOWER(email) = LOWER($1)', [cleanEmail]);
+    await client.query(`
       INSERT INTO otps (id, email, otp_code, otp_hash, expires_at, failed_attempts, resend_count, resend_window_start, created_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
     `, [otpId, cleanEmail, 'HASHED', otpHash, expiresAtMs, 0, 0, nowMs, nowMs]);
 
-    console.log(`[REGISTER] Step 4: OTP record generated (ID: ${otpId})`);
-
-    // Transmit OTP code via email service
+    // Step 4: Transmit OTP via Brevo SMTP
+    console.log(`[REGISTRATION STEP: SMTP_SEND] Transmitting verification email to ${cleanEmail}`);
     const sendResult = await sendOtpEmail(cleanEmail, otpCode);
 
     if (!sendResult.success) {
-      console.error(`[REGISTER ERROR] Email delivery failed for ${cleanEmail}: ${sendResult.error}`);
-      // ROLLBACK: Delete inserted pending user and OTP record so no half-created user remains
-      await query('DELETE FROM otps WHERE id = $1', [otpId]).catch(() => {});
-      await query('DELETE FROM users WHERE id = $1', [userId]).catch(() => {});
-
+      console.error(`[REGISTRATION ERROR: SMTP_FAILED] Email delivery failed for ${cleanEmail}: ${sendResult.error}`);
+      // ROLLBACK: Undo user and OTP creation in database completely
+      await client.query('ROLLBACK');
       res.status(502).json({
-        error: sendResult.error || 'Verification email could not be delivered. Please check your email address and try again.',
+        error: 'EMAIL_DELIVERY_FAILED',
+        message: sendResult.error || 'We could not send the OTP email right now. Please try again.',
       });
       return;
     }
 
-    console.log(`[REGISTER] Step 5: OTP transmitted successfully to ${cleanEmail}`);
+    // Step 5: COMMIT Transaction after successful email transmission
+    await client.query('COMMIT');
+    console.log(`[REGISTRATION STEP: SUCCESS] Account registration initiated successfully for ${cleanEmail}`);
 
     res.json({
       success: true,
@@ -157,8 +168,27 @@ router.post('/register', async (req: AuthRequest, res: Response): Promise<void> 
       message: 'Registration initiated. A 6-digit OTP code has been transmitted to your email.',
     });
   } catch (err: any) {
-    console.error(`[REGISTER EXCEPTION] ${req.body?.email || 'Unknown'}:`, err?.stack || err?.message || err);
-    res.status(500).json({ error: 'Server error during registration. Please try again.' });
+    if (client) {
+      await client.query('ROLLBACK').catch(() => {});
+    }
+    console.error(`[REGISTRATION ERROR: EXCEPTION] ${cleanEmail}:`, err?.message || err);
+
+    if (err?.code === '57014' || err?.message?.includes('timeout')) {
+      res.status(503).json({
+        error: 'DATABASE_TIMEOUT',
+        message: 'Database operation timed out. Please try again.',
+      });
+      return;
+    }
+
+    res.status(500).json({
+      error: 'INTERNAL_SERVER_ERROR',
+      message: 'Registration could not be completed. Please try again.',
+    });
+  } finally {
+    if (client) {
+      client.release();
+    }
   }
 });
 

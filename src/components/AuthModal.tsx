@@ -77,16 +77,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, initia
           setInfoMsg('Your account is pending verification. A 6-digit OTP code was sent to your email.');
           setCooldown(60);
         } else {
-          setErrorMsg(data.error || 'Login failed. Please check credentials.');
+          setErrorMsg(data.error || data.message || 'Login failed. Please check credentials.');
         }
-        setLoading(false);
         return;
       }
 
       soundFx.playLevelUp();
       onSuccess(data.user, data.token);
-    } catch (err) {
-      setErrorMsg('Network error connecting to System Window backend.');
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Network error connecting to System Window backend.');
     } finally {
       setLoading(false);
     }
@@ -109,23 +108,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, initia
       const data = await res.json();
 
       if (!res.ok) {
-        setErrorMsg(data.error || 'Admin authentication failed. Invalid credentials.');
-        setLoading(false);
+        setErrorMsg(data.error || data.message || 'Admin authentication failed. Invalid credentials.');
         return;
       }
 
       // PART 5 — VERIFY BACKEND ROLE IS ADMIN
-      if (data.user.role !== 'ADMIN') {
+      if (data.user?.role !== 'ADMIN') {
         soundFx.playBlip(500);
         setErrorMsg('ACCESS DENIED — ADMIN CLEARANCE REQUIRED. This account does not hold Administrator privileges.');
-        setLoading(false);
         return;
       }
 
       soundFx.playLevelUp();
       onSuccess(data.user, data.token);
-    } catch (err) {
-      setErrorMsg('Network error connecting to System Window backend.');
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Network error connecting to System Window backend.');
     } finally {
       setLoading(false);
     }
@@ -148,8 +145,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, initia
       const data = await res.json();
 
       if (!res.ok) {
-        setErrorMsg(data.error || 'Registration failed.');
-        setLoading(false);
+        setErrorMsg(data.error || data.message || 'Registration failed.');
         return;
       }
 
@@ -157,8 +153,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, initia
       setMode('OTP');
       setInfoMsg('Passcode transmitted! Enter the 6-digit OTP sent to your email.');
       setCooldown(60);
-    } catch (err) {
-      setErrorMsg('Network error connecting to server.');
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Network error connecting to server.');
     } finally {
       setLoading(false);
     }
@@ -181,15 +177,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, initia
       const data = await res.json();
 
       if (!res.ok) {
-        setErrorMsg(data.error || 'OTP verification failed.');
-        setLoading(false);
+        setErrorMsg(data.error || data.message || 'OTP verification failed.');
         return;
       }
 
       soundFx.playLevelUp();
       onSuccess(data.user, data.token);
-    } catch (err) {
-      setErrorMsg('Network error verifying OTP.');
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Network error verifying OTP.');
     } finally {
       setLoading(false);
     }
