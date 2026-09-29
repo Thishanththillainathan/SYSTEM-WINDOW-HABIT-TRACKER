@@ -95,9 +95,9 @@ const corsOptions: cors.CorsOptions = {
   optionsSuccessStatus: 200,
 };
 
-// Apply CORS before all routes
+// Apply CORS before all routes (Express 5 compatible wildcard regex)
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
+app.options(/(.*)/, cors(corsOptions));
 
 app.use(express.json({ limit: '5mb' }));
 app.use(cookieParser());
